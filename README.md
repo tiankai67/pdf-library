@@ -37,7 +37,7 @@ node server.js
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
 | `PORT` | 服务端口 | `3777` |
-| `ADMIN_PASSWORD` | 首次生成 `data/config.json` 时使用的初始密码 | `yuntian2026` |
+| `ADMIN_PASSWORD` | 首次生成 `data/config.json` 时使用的初始密码 | 未设置时首次启动随机生成并打印到控制台 |
 | `DATA_DIR` | 数据目录（存放 books.json / pdfs / covers / config.json） | `./data` |
 | `RESET_PASSWORD` | 设为 `1` 启动时强制用 `ADMIN_PASSWORD` 重置密码 | 不重置 |
 
