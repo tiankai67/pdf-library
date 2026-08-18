@@ -1,0 +1,44 @@
+[
+  {
+    "id": "7171c8c1-ffca-4aa1-9c96-68fd255ef752",
+    "title": "3期",
+    "pages": 12,
+    "size": 3043917,
+    "createdAt": 1786005127403,
+    "order": 0,
+    "updatedAt": 1786009718361
+  },
+  {
+    "id": "9d27fac8-4102-4cdc-a42b-8d5fb0a15d7b",
+    "title": "4期",
+    "pages": 12,
+    "size": 2549175,
+    "createdAt": 1786005131044,
+    "order": 1
+  },
+  {
+    "id": "14e192cc-78ef-451e-a603-6c9cf016dfd3",
+    "title": "5期",
+    "pages": 12,
+    "size": 2955286,
+    "createdAt": 1786005134342,
+    "order": 2
+  },
+  {
+    "id": "a407d710-496d-42ec-b6a3-87832e8062aa",
+    "title": "6期",
+    "pages": 12,
+    "size": 2760302,
+    "createdAt": 1786002105454,
+    "order": 3
+  },
+  {
+    "id": "823399f9-8951-43ea-b229-6ff8884ad3a2",
+    "title": "7期",
+    "pages": 12,
+    "size": 2748716,
+    "createdAt": 1786002120916,
+    "order": 4,
+    "updatedAt": 1786009494565
+  }
+]

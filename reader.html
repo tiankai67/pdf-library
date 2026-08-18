@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阅读器</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- PageFlip 翻页效果 -->
+  <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js"></script>
+</head>
+<body class="reader-body">
+  <header class="topbar">
+    <div class="flex items-center" style="gap:14px;">
+      <a href="index.html" class="ctrl-btn" title="返回书架" style="text-decoration:none;">← 书架</a>
+      <h1 id="book-title" style="font-size:18px;">加载中…</h1>
+    </div>
+
+    <div id="controls" class="controls" style="display:none;">
+      <div class="zoom-group">
+        <button id="btn-zoom-out" title="缩小">−</button>
+        <input type="number" id="zoom-input" min="1" max="300" value="100">
+        <span style="font-size:13px;">%</span>
+        <button id="btn-zoom-in" title="放大">＋</button>
+        <button id="btn-zoom-fit" title="适应屏幕" style="font-size:12px; padding:7px 8px;">适应</button>
+      </div>
+      <div class="sep"></div>
+      <button id="btn-prev" class="ctrl-btn" title="上一页">‹ 上一页</button>
+      <span id="page-count" class="page-count">第 0 页 / 共 0 页</span>
+      <button id="btn-next" class="ctrl-btn" title="下一页">下一页 ›</button>
+    </div>
+  </header>
+
+  <div id="msg" class="msg"></div>
+
+  <main class="reader-main">
+    <div id="empty-state" style="text-align:center; color:#9c8470;">
+      <p style="font-size:17px;">正在打开图书…</p>
+    </div>
+
+    <div class="w-full h-full overflow-auto relative z-10 flex" id="scroll-wrapper"
+         style="display:none;">
+      <div class="flex-shrink-0 m-auto relative" id="zoom-wrapper">
+        <div id="flipbook" class="flip-book mx-auto w-full h-full"></div>
+      </div>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay">
+      <div class="spinner"></div>
+      <div style="font-weight:600; color:#5b4632; margin-bottom:8px;" id="loading-text">正在处理 PDF…</div>
+      <div class="progress-track"><div id="progress-bar" class="progress-bar" style="width:0%"></div></div>
+      <div style="font-size:12px; color:#9c8470; margin-top:10px;">页数较多时请稍候</div>
+    </div>
+  </main>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let pageFlip = null;
+    let basePageW = 0, basePageH = 0;
+    let currentZoom = 100, fitContainerWidth = 0, fitContainerHeight = 0;
+
+    const zoomWrapper = document.getElementById('zoom-wrapper');
+    const scrollWrapper = document.getElementById('scroll-wrapper');
+    const zoomInput = document.getElementById('zoom-input');
+    const flipbookEl = document.getElementById('flipbook');
+    const overlay = document.getElementById('loading-overlay');
+
+    function showMsg(t) {
+      const m = document.getElementById('msg');
+      m.textContent = t; m.classList.add('show');
+      setTimeout(() => m.classList.remove('show'), 2800);
+    }
+
+    const bookId = new URLSearchParams(location.search).get('id');
+    let STATIC_MODE = false;
+
+    // 探测后端；不可用时从相对的 books.json 取元信息（GitHub Pages 等静态托管场景）
+    async function resolveMeta(id) {
+      try {
+        const r = await fetch('/api/book/' + encodeURIComponent(id));
+        if (r.ok) { const d = await r.json(); if (d.ok) return d.book; }
+      } catch (e) { /* 走静态回退 */ }
+      STATIC_MODE = true;
+      const list = await (await fetch('books.json', { cache: 'no-store' })).json();
+      const books = Array.isArray(list) ? list : (list.books || []);
+      return books.find((b) => b.id === id) || null;
+    }
+
+    async function start() {
+      if (!bookId) { showMsg('缺少图书 ID'); return; }
+      try {
+        const meta = await resolveMeta(bookId);
+        if (meta) {
+          document.getElementById('book-title').textContent = meta.title;
+          document.title = meta.title + ' · 阅读';
+        } else {
+          showMsg('该图书不存在'); return;
+        }
+      } catch (e) { /* 忽略，继续尝试加载 */ }
+
+      const pdfUrl = (STATIC_MODE ? 'pdfs/' : '/pdfs/') + encodeURIComponent(bookId) + '.pdf';
+      let arrayBuffer;
+      try {
+        const resp = await fetch(pdfUrl);
+        if (!resp.ok) throw new Error('PDF 不存在');
+        arrayBuffer = await resp.arrayBuffer();
+      } catch (e) {
+        showMsg('加载 PDF 失败：' + e.message);
+        document.getElementById('loading-text').textContent = '加载失败';
+        return;
+      }
+      processPDF(new Uint8Array(arrayBuffer));
+    }
+
+    async function processPDF(typedarray) {
+      const progressText = document.getElementById('loading-text');
+      const progressBar = document.getElementById('progress-bar');
+      flipbookEl.innerHTML = '';
+      if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+
+      let pdf;
+      try {
+        pdf = await pdfjsLib.getDocument({
+          data: typedarray,
+          cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+          cMapPacked: true,
+        }).promise;
+      } catch (e) {
+        showMsg('PDF 解析失败：' + (e.message || e));
+        document.getElementById('loading-text').textContent = '解析失败';
+        return;
+      }
+
+      const numPages = pdf.numPages;
+      const firstPage = await pdf.getPage(1);
+      const viewport = firstPage.getViewport({ scale: 1.5 });
+      basePageW = viewport.width;
+      basePageH = viewport.height;
+
+      for (let i = 1; i <= numPages; i++) {
+        progressText.textContent = `正在渲染第 ${i} 页，共 ${numPages} 页`;
+        progressBar.style.width = `${(i / numPages) * 100}%`;
+
+        const page = await pdf.getPage(i);
+        const vp = page.getViewport({ scale: basePageW / page.getViewport({ scale: 1.0 }).width });
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        canvas.width = basePageW;
+        canvas.height = basePageH;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'page';
+        if (i === 1 || i === numPages) pageDiv.classList.add('-hard');
+        const img = document.createElement('img');
+        img.src = imgData;
+        img.setAttribute('draggable', 'false');
+        pageDiv.appendChild(img);
+        flipbookEl.appendChild(pageDiv);
+      }
+
+      overlay.style.display = 'none';
+      document.getElementById('empty-state').style.display = 'none';
+      scrollWrapper.style.display = 'flex';
+      initPageFlip(numPages);
+    }
+
+    function initPageFlip(numPages) {
+      document.getElementById('controls').style.display = 'flex';
+      calculateFitBase();
+      zoomWrapper.style.width = `${fitContainerWidth}px`;
+      zoomWrapper.style.height = `${fitContainerHeight}px`;
+      zoomWrapper.style.minWidth = `${fitContainerWidth}px`;
+      zoomWrapper.style.minHeight = `${fitContainerHeight}px`;
+      currentZoom = 100;
+      zoomInput.value = 100;
+
+      pageFlip = new St.PageFlip(flipbookEl, {
+        width: basePageW,
+        height: basePageH,
+        size: 'stretch',
+        minWidth: 10,
+        maxWidth: 10000,
+        minHeight: 10,
+        maxHeight: 10000,
+        maxShadowOpacity: 0.5,
+        showCover: true,
+        mobileScrollSupport: false,
+        usePortrait: false,
+      });
+
+      pageFlip.loadFromHTML(document.querySelectorAll('.page'));
+      updatePageCount(pageFlip.getCurrentPageIndex(), numPages);
+      pageFlip.on('flip', (e) => updatePageCount(e.data, numPages));
+      document.getElementById('btn-prev').onclick = () => pageFlip.flipPrev();
+      document.getElementById('btn-next').onclick = () => pageFlip.flipNext();
+
+      // 布局稳定后再校准一次，避免初始测量偏差导致书本被算得过小
+      requestAnimationFrame(() => fitToScreen());
+    }
+
+    function updatePageCount(idx, total) {
+      const el = document.getElementById('page-count');
+      if (idx === 0) el.textContent = '封面';
+      else if (idx > total) el.textContent = '封底';
+      else el.textContent = `第 ${idx} 页 / 共 ${total} 页`;
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (!pageFlip) return;
+      if (document.activeElement === zoomInput) return;
+      if (e.key === 'ArrowLeft') pageFlip.flipPrev();
+      else if (e.key === 'ArrowRight') pageFlip.flipNext();
+    });
+
+    function calculateFitBase() {
+      // 适应 = 直接 100%：用满整个滚动容器（不留白），书刚好铺满视口
+      let cw = scrollWrapper.clientWidth;
+      let ch = scrollWrapper.clientHeight;
+      if (cw < 100) cw = 100;
+      if (ch < 100) ch = 100;
+      const bookRatio = (basePageW * 2) / basePageH;
+      const containerRatio = cw / ch;
+      if (containerRatio > bookRatio) {
+        fitContainerHeight = ch;
+        fitContainerWidth = ch * bookRatio;
+      } else {
+        fitContainerWidth = cw;
+        fitContainerHeight = cw / bookRatio;
+      }
+    }
+
+    function setZoom(p) {
+      if (!pageFlip) return;
+      p = Math.max(1, Math.min(p, 300));
+      currentZoom = p;
+      if (Number(zoomInput.value) !== Math.round(p)) zoomInput.value = Math.round(p);
+      const s = p / 100;
+      const w = fitContainerWidth * s, h = fitContainerHeight * s;
+      zoomWrapper.style.width = `${w}px`;
+      zoomWrapper.style.height = `${h}px`;
+      zoomWrapper.style.minWidth = `${w}px`;
+      zoomWrapper.style.minHeight = `${h}px`;
+      pageFlip.update();
+    }
+
+    function fitToScreen() { calculateFitBase(); setZoom(100); }
+
+    document.getElementById('btn-zoom-in').onclick = () => setZoom(currentZoom + 10);
+    document.getElementById('btn-zoom-out').onclick = () => setZoom(currentZoom - 10);
+    document.getElementById('btn-zoom-fit').onclick = () => fitToScreen();
+    zoomInput.addEventListener('change', (e) => {
+      const v = parseFloat(e.target.value);
+      setZoom(isNaN(v) ? currentZoom : v);
+    });
+    zoomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') zoomInput.blur(); });
+    scrollWrapper.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        setZoom(currentZoom + (e.deltaY < 0 ? 5 : -5));
+      }
+    }, { passive: false });
+    window.addEventListener('resize', () => { if (pageFlip && currentZoom === 100) fitToScreen(); });
+
+    start();
+  </script>
+</body>
+</html>

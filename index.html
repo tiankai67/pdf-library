@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>书库 · 在线书架</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+      书库
+    </h1>
+    <div class="links">
+      <a href="admin.html">管理后台</a>
+    </div>
+  </header>
+
+  <main class="library">
+    <div class="shelf-title">📚 全部藏书</div>
+    <div id="books" class="books-grid"></div>
+    <div id="empty" class="empty" style="display:none">
+      书架空空如也～ 请前往「管理后台」上传第一本 PDF 吧。
+    </div>
+  </main>
+
+  <div id="msg" class="msg"></div>
+
+  <script>
+    const booksEl = document.getElementById('books');
+    const emptyEl = document.getElementById('empty');
+
+    function showMsg(text) {
+      const m = document.getElementById('msg');
+      m.textContent = text;
+      m.classList.add('show');
+      setTimeout(() => m.classList.remove('show'), 2600);
+    }
+
+    function fmtSize(b) {
+      if (!b) return '';
+      if (b < 1024) return b + ' B';
+      if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+      return (b / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    // 静态模式标记：检测到后端 /api/books 不可用时，自动从相对的 books.json / covers / pdfs 加载
+    let STATIC_MODE = false;
+
+    async function fetchBooks() {
+      // 兼容两种数据格式：API 返回 {books:[...]}；books.json 直接是数组 [...]
+      try {
+        const res = await fetch('/api/books', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          return Array.isArray(data) ? data : (data.books || []);
+        }
+      } catch (e) { /* 后端不可用，走静态回退 */ }
+      STATIC_MODE = true;
+      const res = await fetch('books.json', { cache: 'no-store' });
+      const data = await res.json();
+      return Array.isArray(data) ? data : (data.books || []);
+    }
+
+    async function loadBooks() {
+      try {
+        const books = await fetchBooks();
+        booksEl.innerHTML = '';
+        if (!books.length) {
+          emptyEl.style.display = 'block';
+          return;
+        }
+        emptyEl.style.display = 'none';
+        const coverBase = STATIC_MODE ? 'covers/' : '/covers/';
+        const noCover = STATIC_MODE ? 'no-cover.svg' : '/no-cover.svg';
+        const readerBase = STATIC_MODE ? 'reader.html' : '/reader.html';
+        books.forEach((b) => {
+          const card = document.createElement('div');
+          card.className = 'book-card';
+          card.innerHTML = `
+            <img class="book-cover" src="${coverBase}${b.id}.jpg" alt="封面"
+                 onerror="this.onerror=null;this.src='${noCover}'">
+            <div class="book-info">
+              <div class="book-title">${escapeHtml(b.title)}</div>
+              <div class="book-meta">${b.pages ? b.pages + ' 页 · ' : ''}${fmtSize(b.size)}</div>
+            </div>
+          `;
+          card.onclick = () => location.href = readerBase + '?id=' + encodeURIComponent(b.id);
+          booksEl.appendChild(card);
+        });
+      } catch (e) {
+        showMsg('加载书架失败：' + e.message);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    loadBooks();
+  </script>
+</body>
+</html>

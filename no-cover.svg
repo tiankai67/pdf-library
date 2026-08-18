@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="440" viewBox="0 0 320 440">
+  <rect width="320" height="440" fill="#e5e7eb"/>
+  <rect x="8" y="8" width="304" height="424" fill="#f3f4f6" stroke="#cbd5e1"/>
+  <g fill="#9ca3af" transform="translate(110,150)">
+    <path d="M40 0C30 0 22 8 22 18v204c0 10 8 18 18 18h120c10 0 18-8 18-18V18c0-10-8-18-18-18H40zm0 16h120c1 0 2 1 2 2v188H38V18c0-1 1-2 2-2zm-6 224c-6 0-10 4-10 10v8c0 6 4 10 10 10h152c6 0 10-4 10-10v-8c0-6-4-10-10-10H34z"/>
+  </g>
+  <text x="160" y="300" font-family="sans-serif" font-size="20" fill="#6b7280" text-anchor="middle">暂无封面</text>
+</svg>
